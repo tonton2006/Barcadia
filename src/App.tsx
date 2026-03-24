@@ -12,7 +12,6 @@ function GameScreen() {
     phase,
     lastCombat,
     winner,
-    endTurn,
     dismissCombat,
     resetGame,
   } = useGameStore();
@@ -46,23 +45,11 @@ function GameScreen() {
                 style={{ backgroundColor: currentPlayer?.cup.color }}
               />
               <span className="font-bold">{currentPlayer?.name}'s turn</span>
-              <span className="text-gray-400 ml-2">— Click an adjacent tile to move</span>
+              <span className="text-gray-400 ml-2">— Hover over a hex to preview, click to explore</span>
             </p>
           </div>
 
           <Board />
-
-          <div className="mt-4 flex gap-2">
-            <button
-              onClick={endTurn}
-              disabled={phase !== 'playing'}
-              className="flex-1 py-2 bg-dungeon-light hover:bg-dungeon-medium
-                         text-white font-semibold rounded-lg transition-colors
-                         disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              End Turn
-            </button>
-          </div>
         </div>
 
         {/* Sidebar */}

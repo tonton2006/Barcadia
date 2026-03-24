@@ -1,96 +1,223 @@
-import { useGameStore } from '../game/store';
-import { Tile, Player } from '../game/types';
+import { useState, useMemo } from 'react';
+import { useGameStore, getPlaceablePositions } from '../game/store';
+import { Tile, Player, HexCoord } from '../game/types';
 
-interface TileProps {
-  tile: Tile;
-  playersOnTile: Player[];
-  isAdjacent: boolean;
-  onClick: () => void;
+const HEX_SIZE = 50; // Radius of hexagon
+const SQRT3 = Math.sqrt(3);
+
+// Convert axial coordinates to pixel position (flat-top hexagons)
+function hexToPixel(q: number, r: number): { x: number; y: number } {
+  const x = HEX_SIZE * (3 / 2) * q;
+  const y = HEX_SIZE * ((SQRT3 / 2) * q + SQRT3 * r);
+  return { x, y };
 }
 
-function TileCell({ tile, playersOnTile, isAdjacent, onClick }: TileProps) {
-  const getTileContent = () => {
-    if (!tile.revealed) {
-      return <span className="text-2xl">❓</span>;
-    }
-    if (tile.monster) {
-      return <span className="text-2xl">👹</span>;
-    }
-    if (tile.isStart) {
-      return <span className="text-2xl">🏠</span>;
-    }
-    return <span className="text-2xl opacity-50">·</span>;
+// SVG path for a flat-top hexagon
+function hexagonPath(size: number): string {
+  const points: string[] = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 180) * (60 * i);
+    const px = size * Math.cos(angle);
+    const py = size * Math.sin(angle);
+    points.push(`${px},${py}`);
+  }
+  return `M ${points.join(' L ')} Z`;
+}
+
+interface HexTileProps {
+  tile: Tile;
+  playersOnTile: Player[];
+  pixelPos: { x: number; y: number };
+}
+
+function HexTile({ tile, playersOnTile, pixelPos }: HexTileProps) {
+  const getTileEmoji = () => {
+    if (tile.monster) return '👹';
+    if (tile.isStart) return '🏠';
+    return '·';
   };
 
   return (
-    <button
-      onClick={onClick}
-      disabled={!isAdjacent}
-      className={`
-        relative w-16 h-16 rounded-lg border-2 flex items-center justify-center
-        transition-all duration-200
-        ${tile.revealed
-          ? 'bg-dungeon-medium border-dungeon-light'
-          : 'bg-dungeon-dark border-gray-700'}
-        ${isAdjacent
-          ? 'border-dungeon-accent cursor-pointer hover:bg-dungeon-light hover:scale-105'
-          : 'cursor-default'}
-        ${tile.monster && tile.revealed ? 'border-red-500' : ''}
-      `}
-    >
-      {getTileContent()}
+    <g transform={`translate(${pixelPos.x}, ${pixelPos.y})`}>
+      <path
+        d={hexagonPath(HEX_SIZE - 2)}
+        className={`
+          fill-dungeon-medium stroke-dungeon-light stroke-2
+          ${tile.monster ? 'stroke-red-500' : ''}
+        `}
+      />
+      <text
+        className="fill-white text-2xl select-none"
+        textAnchor="middle"
+        dominantBaseline="central"
+        style={{ fontSize: '24px' }}
+      >
+        {getTileEmoji()}
+      </text>
 
       {/* Player tokens */}
       {playersOnTile.length > 0 && (
-        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex gap-0.5">
-          {playersOnTile.map(player => (
-            <div
-              key={player.id}
-              className="w-3 h-3 rounded-full border border-white"
-              style={{ backgroundColor: player.cup.color }}
-              title={player.name}
-            />
-          ))}
-        </div>
+        <g transform={`translate(0, ${HEX_SIZE * 0.5})`}>
+          {playersOnTile.map((player, i) => {
+            const offset = (i - (playersOnTile.length - 1) / 2) * 14;
+            return (
+              <circle
+                key={player.id}
+                cx={offset}
+                cy={0}
+                r={6}
+                fill={player.cup.color}
+                stroke="white"
+                strokeWidth={2}
+              />
+            );
+          })}
+        </g>
       )}
-    </button>
+    </g>
+  );
+}
+
+interface PlaceableHexProps {
+  coord: HexCoord;
+  pixelPos: { x: number; y: number };
+  isHovered: boolean;
+  onHover: (coord: HexCoord | null) => void;
+  onClick: () => void;
+}
+
+function PlaceableHex({ coord, pixelPos, isHovered, onHover, onClick }: PlaceableHexProps) {
+  return (
+    <g
+      transform={`translate(${pixelPos.x}, ${pixelPos.y})`}
+      onMouseEnter={() => onHover(coord)}
+      onMouseLeave={() => onHover(null)}
+      onClick={onClick}
+      className="cursor-pointer"
+    >
+      <path
+        d={hexagonPath(HEX_SIZE - 2)}
+        className={`
+          transition-all duration-200
+          ${isHovered
+            ? 'fill-dungeon-accent/40 stroke-dungeon-accent stroke-2'
+            : 'fill-transparent stroke-dungeon-accent/50 stroke-2 stroke-dashed'}
+        `}
+        style={{ strokeDasharray: isHovered ? 'none' : '8,4' }}
+      />
+      {isHovered && (
+        <text
+          className="fill-dungeon-accent text-xl select-none pointer-events-none"
+          textAnchor="middle"
+          dominantBaseline="central"
+          style={{ fontSize: '20px' }}
+        >
+          +
+        </text>
+      )}
+    </g>
   );
 }
 
 export function Board() {
-  const { map, players, currentPlayerIndex, phase, moveTo } = useGameStore();
-
-  if (map.length === 0) return null;
+  const { map, players, currentPlayerIndex, phase, placeTile } = useGameStore();
+  const [hoveredCoord, setHoveredCoord] = useState<HexCoord | null>(null);
 
   const currentPlayer = players[currentPlayerIndex];
-  const { x: px, y: py } = currentPlayer?.position ?? { x: 0, y: 0 };
 
-  const isAdjacent = (x: number, y: number) => {
-    if (phase !== 'playing') return false;
-    const dx = Math.abs(x - px);
-    const dy = Math.abs(y - py);
-    return dx + dy === 1;
+  // Get all placeable positions for current player
+  const placeablePositions = useMemo(() => {
+    if (phase !== 'playing' || !currentPlayer) return [];
+    return getPlaceablePositions(map, currentPlayer.position);
+  }, [map, currentPlayer, phase]);
+
+  // Calculate bounds to center the view
+  const bounds = useMemo(() => {
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    // Include existing tiles
+    map.forEach((_, key) => {
+      const [q, r] = key.split(',').map(Number);
+      const pos = hexToPixel(q, r);
+      minX = Math.min(minX, pos.x);
+      maxX = Math.max(maxX, pos.x);
+      minY = Math.min(minY, pos.y);
+      maxY = Math.max(maxY, pos.y);
+    });
+
+    // Include placeable positions
+    placeablePositions.forEach(({ q, r }) => {
+      const pos = hexToPixel(q, r);
+      minX = Math.min(minX, pos.x);
+      maxX = Math.max(maxX, pos.x);
+      minY = Math.min(minY, pos.y);
+      maxY = Math.max(maxY, pos.y);
+    });
+
+    const padding = HEX_SIZE * 1.5;
+    return {
+      x: minX - padding,
+      y: minY - padding,
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2,
+    };
+  }, [map, placeablePositions]);
+
+  if (map.size === 0) return null;
+
+  const getPlayersOnTile = (q: number, r: number) => {
+    return players.filter(
+      p => p.position.q === q && p.position.r === r && p.cup.currentLevel > 0
+    );
   };
 
-  const getPlayersOnTile = (x: number, y: number) => {
-    return players.filter(p => p.position.x === x && p.position.y === y && p.cup.currentLevel > 0);
-  };
+  // Convert map to array for rendering
+  const tiles = Array.from(map.entries()).map(([key, tile]) => ({
+    key,
+    tile,
+    pixelPos: hexToPixel(tile.q, tile.r),
+  }));
 
   return (
-    <div className="flex flex-col gap-1 p-4 bg-dungeon-dark/50 rounded-xl">
-      {map.map((row, y) => (
-        <div key={y} className="flex gap-1">
-          {row.map((tile, x) => (
-            <TileCell
-              key={`${x}-${y}`}
-              tile={tile}
-              playersOnTile={getPlayersOnTile(x, y)}
-              isAdjacent={isAdjacent(x, y)}
-              onClick={() => moveTo(x, y)}
+    <div className="flex flex-col items-center gap-4 p-4 bg-dungeon-dark/50 rounded-xl">
+      <svg
+        viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`}
+        className="w-full max-w-2xl"
+        style={{ minHeight: '400px' }}
+      >
+        {/* Placeable hexes (render first so they're behind) */}
+        {placeablePositions.map(coord => {
+          const pixelPos = hexToPixel(coord.q, coord.r);
+          const isHovered = hoveredCoord?.q === coord.q && hoveredCoord?.r === coord.r;
+          return (
+            <PlaceableHex
+              key={`placeable-${coord.q}-${coord.r}`}
+              coord={coord}
+              pixelPos={pixelPos}
+              isHovered={isHovered}
+              onHover={setHoveredCoord}
+              onClick={() => placeTile(coord.q, coord.r)}
             />
-          ))}
-        </div>
-      ))}
+          );
+        })}
+
+        {/* Existing tiles */}
+        {tiles.map(({ key, tile, pixelPos }) => (
+          <HexTile
+            key={key}
+            tile={tile}
+            playersOnTile={getPlayersOnTile(tile.q, tile.r)}
+            pixelPos={pixelPos}
+          />
+        ))}
+      </svg>
+
+      {phase === 'playing' && currentPlayer && (
+        <p className="text-dungeon-accent text-sm">
+          {currentPlayer.name}'s turn - click a hex to explore
+        </p>
+      )}
     </div>
   );
 }
