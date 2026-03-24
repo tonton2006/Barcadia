@@ -1,32 +1,5 @@
 import { Player } from '../game/types';
 
-// Cup/drink icon SVG component
-function CupIcon({ filled, color }: { filled: boolean; color: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="w-5 h-5"
-      fill={filled ? color : 'transparent'}
-      stroke={filled ? color : '#4a4a4a'}
-      strokeWidth={2}
-    >
-      {/* Cup body */}
-      <path d="M5 6h14l-1.5 12a2 2 0 01-2 2H8.5a2 2 0 01-2-2L5 6z" />
-      {/* Cup rim */}
-      <path d="M4 6h16" strokeLinecap="round" />
-      {/* Liquid surface (wavy line) */}
-      {filled && (
-        <path
-          d="M7 10c1 1 2 0 3 0s2 1 3 0 2-1 3 0"
-          fill="none"
-          stroke="rgba(255,255,255,0.5)"
-          strokeWidth={1.5}
-        />
-      )}
-    </svg>
-  );
-}
-
 interface PlayerCardProps {
   player: Player;
   isActive: boolean;
@@ -58,20 +31,43 @@ export function PlayerCard({ player, isActive }: PlayerCardProps) {
         </span>
       </div>
 
-      {/* Cup icons grid (10 cups = 2 rows of 5) */}
-      <div className="grid grid-cols-5 gap-1">
-        {[...Array(cup.capacity)].map((_, i) => (
-          <CupIcon
-            key={i}
-            filled={i < cup.currentLevel}
-            color={cup.color}
-          />
-        ))}
-      </div>
+      {/* Single cup with 10 stacked bars */}
+      <div className="relative w-full h-28">
+        {/* Cup shape - tapered container */}
+        <div
+          className="absolute inset-x-2 top-0 bottom-0 rounded-b-xl overflow-hidden border-2 border-gray-600"
+          style={{
+            clipPath: 'polygon(10% 0%, 90% 0%, 100% 100%, 0% 100%)',
+            background: '#1a1a2e',
+          }}
+        >
+          {/* Stacked bars inside the cup */}
+          <div className="absolute inset-0 flex flex-col-reverse p-1 gap-0.5">
+            {[...Array(cup.capacity)].map((_, i) => (
+              <div
+                key={i}
+                className="flex-1 rounded-sm transition-all duration-300"
+                style={{
+                  backgroundColor: i < cup.currentLevel ? cup.color : '#2a2a3e',
+                  opacity: i < cup.currentLevel ? 0.9 : 0.3,
+                }}
+              />
+            ))}
+          </div>
+        </div>
 
-      {/* Health text */}
-      <div className="mt-2 text-center text-xs text-gray-400">
-        {cup.currentLevel}/{cup.capacity} drinks left
+        {/* Cup rim */}
+        <div
+          className="absolute top-0 inset-x-0 h-2 rounded-t-sm border-2 border-gray-500"
+          style={{ background: '#3a3a4e' }}
+        />
+
+        {/* Level text overlay */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-white font-bold text-lg drop-shadow-lg">
+            {cup.currentLevel}/{cup.capacity}
+          </span>
+        </div>
       </div>
 
       {/* Active indicator */}
