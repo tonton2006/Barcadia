@@ -31,44 +31,88 @@ export function PlayerCard({ player, isActive }: PlayerCardProps) {
         </span>
       </div>
 
-      {/* Single cup with 10 stacked bars */}
-      <div className="relative w-full h-28">
-        {/* Cup shape - tapered container */}
-        <div
-          className="absolute inset-x-2 top-0 bottom-0 rounded-b-xl overflow-hidden border-2 border-gray-600"
-          style={{
-            clipPath: 'polygon(10% 0%, 90% 0%, 100% 100%, 0% 100%)',
-            background: '#1a1a2e',
-          }}
-        >
-          {/* Stacked bars inside the cup */}
-          <div className="absolute inset-0 flex flex-col-reverse p-1 gap-0.5">
-            {[...Array(cup.capacity)].map((_, i) => (
-              <div
-                key={i}
-                className="flex-1 rounded-sm transition-all duration-300"
-                style={{
-                  backgroundColor: i < cup.currentLevel ? cup.color : '#2a2a3e',
-                  opacity: i < cup.currentLevel ? 0.9 : 0.3,
-                }}
-              />
-            ))}
-          </div>
-        </div>
+      {/* Beer mug with stacked liquid bars */}
+      <svg viewBox="0 0 80 100" className="w-full h-28">
+        {/* Mug body - pint glass shape */}
+        <defs>
+          <clipPath id={`mug-clip-${player.id}`}>
+            <path d="M15 10 L12 85 Q12 95 22 95 L58 95 Q68 95 68 85 L65 10 Z" />
+          </clipPath>
+        </defs>
 
-        {/* Cup rim */}
-        <div
-          className="absolute top-0 inset-x-0 h-2 rounded-t-sm border-2 border-gray-500"
-          style={{ background: '#3a3a4e' }}
+        {/* Mug glass background */}
+        <path
+          d="M15 10 L12 85 Q12 95 22 95 L58 95 Q68 95 68 85 L65 10 Z"
+          fill="#1a1a2e"
+          stroke="#666"
+          strokeWidth="2"
         />
 
-        {/* Level text overlay */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-white font-bold text-lg drop-shadow-lg">
-            {cup.currentLevel}/{cup.capacity}
-          </span>
-        </div>
-      </div>
+        {/* Liquid bars inside mug */}
+        <g clipPath={`url(#mug-clip-${player.id})`}>
+          {[...Array(cup.capacity)].map((_, i) => {
+            const barHeight = 8;
+            const startY = 88 - (i * barHeight);
+            const isFilled = i < cup.currentLevel;
+            return (
+              <rect
+                key={i}
+                x="14"
+                y={startY}
+                width="52"
+                height={barHeight - 1}
+                rx="1"
+                fill={isFilled ? cup.color : '#2a2a3e'}
+                opacity={isFilled ? 0.9 : 0.3}
+                className="transition-all duration-300"
+              />
+            );
+          })}
+        </g>
+
+        {/* Foam/head at top of liquid */}
+        {cup.currentLevel > 0 && (
+          <ellipse
+            cx="40"
+            cy={88 - (cup.currentLevel * 8) + 2}
+            rx="24"
+            ry="3"
+            fill="rgba(255,255,255,0.3)"
+          />
+        )}
+
+        {/* Mug rim */}
+        <path
+          d="M14 10 Q14 5 20 5 L60 5 Q66 5 66 10"
+          fill="none"
+          stroke="#888"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
+
+        {/* Handle */}
+        <path
+          d="M68 25 Q85 25 85 50 Q85 75 68 75"
+          fill="none"
+          stroke="#666"
+          strokeWidth="4"
+          strokeLinecap="round"
+        />
+
+        {/* Level text */}
+        <text
+          x="40"
+          y="55"
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fill="white"
+          fontSize="14"
+          fontWeight="bold"
+          style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}
+        >
+          {cup.currentLevel}/{cup.capacity}
+        </text>
+      </svg>
 
       {/* Active indicator */}
       {isActive && !isDead && (

@@ -82,11 +82,12 @@ interface PlaceableHexProps {
   coord: HexCoord;
   pixelPos: { x: number; y: number };
   isHovered: boolean;
+  playerColor: string;
   onHover: (coord: HexCoord | null) => void;
   onClick: () => void;
 }
 
-function PlaceableHex({ coord, pixelPos, isHovered, onHover, onClick }: PlaceableHexProps) {
+function PlaceableHex({ coord, pixelPos, isHovered, playerColor, onHover, onClick }: PlaceableHexProps) {
   return (
     <g
       transform={`translate(${pixelPos.x}, ${pixelPos.y})`}
@@ -97,20 +98,20 @@ function PlaceableHex({ coord, pixelPos, isHovered, onHover, onClick }: Placeabl
     >
       <path
         d={hexagonPath(HEX_SIZE - 2)}
-        className={`
-          transition-all duration-200
-          ${isHovered
-            ? 'fill-dungeon-accent/40 stroke-dungeon-accent stroke-2'
-            : 'fill-transparent stroke-dungeon-accent/50 stroke-2 stroke-dashed'}
-        `}
-        style={{ strokeDasharray: isHovered ? 'none' : '8,4' }}
+        style={{
+          fill: isHovered ? `${playerColor}66` : 'transparent',
+          stroke: isHovered ? playerColor : `${playerColor}88`,
+          strokeWidth: 2,
+          strokeDasharray: isHovered ? 'none' : '8,4',
+          transition: 'all 0.2s',
+        }}
       />
       {isHovered && (
         <text
-          className="fill-dungeon-accent text-xl select-none pointer-events-none"
           textAnchor="middle"
           dominantBaseline="central"
-          style={{ fontSize: '20px' }}
+          style={{ fontSize: '20px', fill: playerColor }}
+          className="select-none pointer-events-none"
         >
           +
         </text>
@@ -196,6 +197,7 @@ export function Board() {
               coord={coord}
               pixelPos={pixelPos}
               isHovered={isHovered}
+              playerColor={currentPlayer?.cup.color ?? '#888'}
               onHover={setHoveredCoord}
               onClick={() => placeTile(coord.q, coord.r)}
             />
@@ -214,7 +216,7 @@ export function Board() {
       </svg>
 
       {phase === 'playing' && currentPlayer && (
-        <p className="text-dungeon-accent text-sm">
+        <p className="text-sm" style={{ color: currentPlayer.cup.color }}>
           {currentPlayer.name}'s turn - click a hex to explore
         </p>
       )}
