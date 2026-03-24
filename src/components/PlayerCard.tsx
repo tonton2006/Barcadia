@@ -1,5 +1,32 @@
 import { Player } from '../game/types';
 
+// Cup/drink icon SVG component
+function CupIcon({ filled, color }: { filled: boolean; color: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="w-5 h-5"
+      fill={filled ? color : 'transparent'}
+      stroke={filled ? color : '#4a4a4a'}
+      strokeWidth={2}
+    >
+      {/* Cup body */}
+      <path d="M5 6h14l-1.5 12a2 2 0 01-2 2H8.5a2 2 0 01-2-2L5 6z" />
+      {/* Cup rim */}
+      <path d="M4 6h16" strokeLinecap="round" />
+      {/* Liquid surface (wavy line) */}
+      {filled && (
+        <path
+          d="M7 10c1 1 2 0 3 0s2 1 3 0 2-1 3 0"
+          fill="none"
+          stroke="rgba(255,255,255,0.5)"
+          strokeWidth={1.5}
+        />
+      )}
+    </svg>
+  );
+}
+
 interface PlayerCardProps {
   player: Player;
   isActive: boolean;
@@ -7,7 +34,6 @@ interface PlayerCardProps {
 
 export function PlayerCard({ player, isActive }: PlayerCardProps) {
   const { cup } = player;
-  const healthPercent = (cup.currentLevel / cup.capacity) * 100;
   const isDead = cup.currentLevel <= 0;
 
   return (
@@ -32,33 +58,20 @@ export function PlayerCard({ player, isActive }: PlayerCardProps) {
         </span>
       </div>
 
-      {/* Drink meter (cup visualization) */}
-      <div className="relative w-full h-20 bg-gray-800 rounded-lg overflow-hidden border-2 border-gray-600">
-        {/* Liquid */}
-        <div
-          className="absolute bottom-0 left-0 right-0 transition-all duration-500 ease-out"
-          style={{
-            height: `${healthPercent}%`,
-            backgroundColor: cup.color,
-            opacity: 0.8,
-          }}
-        />
-
-        {/* Cup markings */}
+      {/* Cup icons grid (10 cups = 2 rows of 5) */}
+      <div className="grid grid-cols-5 gap-1">
         {[...Array(cup.capacity)].map((_, i) => (
-          <div
+          <CupIcon
             key={i}
-            className="absolute left-0 right-0 border-t border-gray-500/30"
-            style={{ bottom: `${((i + 1) / cup.capacity) * 100}%` }}
+            filled={i < cup.currentLevel}
+            color={cup.color}
           />
         ))}
+      </div>
 
-        {/* Level text */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-white font-bold text-lg drop-shadow-lg">
-            {cup.currentLevel}/{cup.capacity}
-          </span>
-        </div>
+      {/* Health text */}
+      <div className="mt-2 text-center text-xs text-gray-400">
+        {cup.currentLevel}/{cup.capacity} drinks left
       </div>
 
       {/* Active indicator */}

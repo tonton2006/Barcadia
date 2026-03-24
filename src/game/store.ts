@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { GameState, Player, Tile, Monster, CombatResult, Cup } from './types';
+import { GameState, Player, Tile, Monster, CombatResult, Cup, HexMap, hexKey, getHexNeighbors, HexCoord } from './types';
 
 // Monster templates
 const MONSTERS: Omit<Monster, 'damage'>[] = [
@@ -19,54 +19,37 @@ const createCup = (color: string, capacity: number): Cup => ({
   currentLevel: capacity,
 });
 
-const generateMap = (width: number, height: number): Tile[][] => {
-  const map: Tile[][] = [];
-  for (let y = 0; y < height; y++) {
-    const row: Tile[] = [];
-    for (let x = 0; x < width; x++) {
-      const isStart = x === 0 && y === Math.floor(height / 2);
-      let monster: Monster | null = null;
+// Generate a random tile (called when player explores)
+const generateTile = (q: number, r: number): Tile => {
+  let monster: Monster | null = null;
 
-      // 30% chance for monster, but not on start tile
-      if (!isStart && Math.random() < 0.3) {
-        const template = MONSTERS[Math.floor(Math.random() * MONSTERS.length)];
-        monster = {
-          ...template,
-          damage: Math.ceil(Math.random() * 2), // 1-2 damage
-        };
-      }
-
-      row.push({
-        x,
-        y,
-        monster,
-        revealed: isStart,
-        isStart,
-      });
-    }
-    map.push(row);
+  // 30% chance for monster
+  if (Math.random() < 0.3) {
+    const template = MONSTERS[Math.floor(Math.random() * MONSTERS.length)];
+    monster = {
+      ...template,
+      damage: Math.ceil(Math.random() * 2), // 1-2 damage
+    };
   }
-  return map;
+
+  return { q, r, monster };
 };
 
-const PLAYER_COLORS = ['#e94560', '#4ecdc4', '#ffe66d', '#95e1d3', '#f38181', '#aa96da'];
+const PLAYER_COLORS = ['#e94560', '#4ecdc4', '#ffe66d', '#95e1d3', '#f38181', '#aa96da', '#a8d8ea', '#fcbad3', '#aa96da', '#f8b500'];
 
 interface GameStore extends GameState {
   // Actions
   startGame: (playerNames: string[]) => void;
-  moveTo: (x: number, y: number) => void;
-  endTurn: () => void;
-  resetGame: () => void;
+  placeTile: (q: number, r: number) => void;
   dismissCombat: () => void;
+  resetGame: () => void;
 }
 
 const initialState: GameState = {
   players: [],
-  map: [],
+  map: new Map(),
   currentPlayerIndex: 0,
   phase: 'setup',
-  width: 5,
-  height: 5,
   lastCombat: null,
   winner: null,
 };
@@ -75,19 +58,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
   ...initialState,
 
   startGame: (playerNames: string[]) => {
-    const { width, height } = get();
-    const startY = Math.floor(height / 2);
+    // Create starting tile at origin
+    const startTile: Tile = { q: 0, r: 0, monster: null, isStart: true };
+    const map: HexMap = new Map();
+    map.set(hexKey(0, 0), startTile);
 
+    // All players start at origin with 10 health
     const players: Player[] = playerNames.map((name, i) => ({
       id: `player-${i}`,
       name,
-      cup: createCup(PLAYER_COLORS[i % PLAYER_COLORS.length], 5),
-      position: { x: 0, y: startY },
+      cup: createCup(PLAYER_COLORS[i % PLAYER_COLORS.length], 10),
+      position: { q: 0, r: 0 },
     }));
 
     set({
       players,
-      map: generateMap(width, height),
+      map,
       currentPlayerIndex: 0,
       phase: 'playing',
       lastCombat: null,
@@ -95,104 +81,94 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  moveTo: (x: number, y: number) => {
+  placeTile: (q: number, r: number) => {
     const { map, players, currentPlayerIndex, phase } = get();
     if (phase !== 'playing') return;
 
     const player = players[currentPlayerIndex];
-    const { x: px, y: py } = player.position;
+    const { q: pq, r: pr } = player.position;
 
-    // Can only move to adjacent tiles
-    const dx = Math.abs(x - px);
-    const dy = Math.abs(y - py);
-    if (dx + dy !== 1) return; // Must be exactly 1 step
+    // Check if this is a valid neighbor of current position
+    const neighbors = getHexNeighbors(pq, pr);
+    const isNeighbor = neighbors.some(n => n.q === q && n.r === r);
+    if (!isNeighbor) return;
 
-    // Bounds check
-    if (x < 0 || y < 0 || x >= map[0].length || y >= map.length) return;
+    // Check tile doesn't already exist
+    const key = hexKey(q, r);
+    if (map.has(key)) return;
 
-    const tile = map[y][x];
-    const newMap = map.map(row => row.map(t => ({ ...t })));
+    // Create the new tile
+    const newTile = generateTile(q, r);
+    const newMap = new Map(map);
+    newMap.set(key, newTile);
+
+    // Move player to new tile
     const newPlayers = players.map(p => ({ ...p, cup: { ...p.cup } }));
+    newPlayers[currentPlayerIndex].position = { q, r };
 
-    // Move player
-    newPlayers[currentPlayerIndex].position = { x, y };
+    // Check for combat
+    if (newTile.monster) {
+      const roll = rollD20();
+      const won = roll >= newTile.monster.difficulty;
 
-    // Reveal tile if not revealed
-    if (!tile.revealed) {
-      newMap[y][x].revealed = true;
+      const combat: CombatResult = {
+        roll,
+        needed: newTile.monster.difficulty,
+        won,
+        monster: newTile.monster,
+      };
 
-      // Combat!
-      if (tile.monster) {
-        const roll = rollD20();
-        const won = roll >= tile.monster.difficulty;
+      if (!won) {
+        // Take damage
+        combat.damage = newTile.monster.damage;
+        newPlayers[currentPlayerIndex].cup.currentLevel -= newTile.monster.damage;
 
-        const combat: CombatResult = {
-          roll,
-          needed: tile.monster.difficulty,
-          won,
-          monster: tile.monster,
-        };
+        // Check for elimination
+        if (newPlayers[currentPlayerIndex].cup.currentLevel <= 0) {
+          newPlayers[currentPlayerIndex].cup.currentLevel = 0;
 
-        if (!won) {
-          // Take damage
-          combat.damage = tile.monster.damage;
-          newPlayers[currentPlayerIndex].cup.currentLevel -= tile.monster.damage;
-
-          // Check for elimination
-          if (newPlayers[currentPlayerIndex].cup.currentLevel <= 0) {
-            newPlayers[currentPlayerIndex].cup.currentLevel = 0;
-
-            // Check if game over (only one player left)
-            const alivePlayers = newPlayers.filter(p => p.cup.currentLevel > 0);
-            if (alivePlayers.length === 1) {
-              set({
-                players: newPlayers,
-                map: newMap,
-                phase: 'gameOver',
-                lastCombat: combat,
-                winner: alivePlayers[0],
-              });
-              return;
-            }
+          // Check if game over (only one player left)
+          const alivePlayers = newPlayers.filter(p => p.cup.currentLevel > 0);
+          if (alivePlayers.length === 1) {
+            set({
+              players: newPlayers,
+              map: newMap,
+              phase: 'gameOver',
+              lastCombat: combat,
+              winner: alivePlayers[0],
+            });
+            return;
           }
-        } else {
-          // Monster defeated - clear it
-          newMap[y][x].monster = null;
         }
-
-        set({
-          players: newPlayers,
-          map: newMap,
-          phase: 'combat',
-          lastCombat: combat,
-        });
-        return;
+      } else {
+        // Monster defeated - clear it
+        newMap.set(key, { ...newTile, monster: null });
       }
+
+      set({
+        players: newPlayers,
+        map: newMap,
+        phase: 'combat',
+        lastCombat: combat,
+      });
+      return;
     }
+
+    // No combat - auto advance turn
+    const nextIndex = findNextAlivePlayer(newPlayers, currentPlayerIndex);
 
     set({
       players: newPlayers,
       map: newMap,
+      currentPlayerIndex: nextIndex,
     });
   },
 
   dismissCombat: () => {
     const { players, currentPlayerIndex } = get();
-    const currentPlayer = players[currentPlayerIndex];
 
-    // If current player is eliminated, skip to next alive player
-    let nextIndex = currentPlayerIndex;
-
-    if (currentPlayer.cup.currentLevel <= 0) {
-      // Find next alive player
-      for (let i = 1; i <= players.length; i++) {
-        const idx = (currentPlayerIndex + i) % players.length;
-        if (players[idx].cup.currentLevel > 0) {
-          nextIndex = idx;
-          break;
-        }
-      }
-    }
+    // Auto advance to next player after combat
+    const nextIndex = findNextAlivePlayer(players, currentPlayerIndex);
 
     set({
       phase: 'playing',
@@ -201,23 +177,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  endTurn: () => {
-    const { players, currentPlayerIndex } = get();
-
-    // Find next alive player
-    let nextIndex = currentPlayerIndex;
-    for (let i = 1; i <= players.length; i++) {
-      const idx = (currentPlayerIndex + i) % players.length;
-      if (players[idx].cup.currentLevel > 0) {
-        nextIndex = idx;
-        break;
-      }
-    }
-
-    set({ currentPlayerIndex: nextIndex });
-  },
-
   resetGame: () => {
-    set(initialState);
+    set({
+      ...initialState,
+      map: new Map(), // Need fresh Map instance
+    });
   },
 }));
+
+// Helper to find next alive player
+function findNextAlivePlayer(players: Player[], currentIndex: number): number {
+  for (let i = 1; i <= players.length; i++) {
+    const idx = (currentIndex + i) % players.length;
+    if (players[idx].cup.currentLevel > 0) {
+      return idx;
+    }
+  }
+  return currentIndex;
+}
+
+// Export helper for components to check placeable positions
+export function getPlaceablePositions(map: HexMap, playerPos: HexCoord): HexCoord[] {
+  const neighbors = getHexNeighbors(playerPos.q, playerPos.r);
+  return neighbors.filter(n => !map.has(hexKey(n.q, n.r)));
+}

@@ -1,4 +1,4 @@
-// Core game types - ported from game.py
+// Core game types - hexagonal grid system
 
 export interface Cup {
   color: string;
@@ -6,11 +6,17 @@ export interface Cup {
   currentLevel: number;
 }
 
+// Axial coordinates for hex grid (q = column, r = row)
+export interface HexCoord {
+  q: number;
+  r: number;
+}
+
 export interface Player {
   id: string;
   name: string;
   cup: Cup;
-  position: { x: number; y: number };
+  position: HexCoord;
 }
 
 export interface Monster {
@@ -20,10 +26,9 @@ export interface Monster {
 }
 
 export interface Tile {
-  x: number;
-  y: number;
+  q: number;
+  r: number;
   monster: Monster | null;
-  revealed: boolean;
   isStart?: boolean;
 }
 
@@ -37,13 +42,27 @@ export interface CombatResult {
 
 export type GamePhase = 'setup' | 'playing' | 'combat' | 'gameOver';
 
+// Sparse hex map - only stores tiles that have been placed
+export type HexMap = Map<string, Tile>;
+
+// Helper to create map key from coords
+export const hexKey = (q: number, r: number): string => `${q},${r}`;
+
+// Get all 6 hex neighbors
+export const getHexNeighbors = (q: number, r: number): HexCoord[] => [
+  { q: q + 1, r: r },     // East
+  { q: q - 1, r: r },     // West
+  { q: q, r: r + 1 },     // Southeast
+  { q: q, r: r - 1 },     // Northwest
+  { q: q + 1, r: r - 1 }, // Northeast
+  { q: q - 1, r: r + 1 }, // Southwest
+];
+
 export interface GameState {
   players: Player[];
-  map: Tile[][];
+  map: HexMap;
   currentPlayerIndex: number;
   phase: GamePhase;
-  width: number;
-  height: number;
   lastCombat: CombatResult | null;
   winner: Player | null;
 }
