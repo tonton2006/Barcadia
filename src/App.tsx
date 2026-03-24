@@ -1,8 +1,10 @@
-import { useGameStore } from './game/store';
+import { useEffect } from 'react';
+import { useGameStore, setNetworkBroadcast } from './game/store';
+import { useNetworkStore } from './network/peer';
 import { Board } from './components/Board';
 import { PlayerList } from './components/PlayerCard';
 import { CombatModal } from './components/CombatModal';
-import { SetupScreen } from './components/SetupScreen';
+import { Lobby } from './components/Lobby';
 import { GameOverScreen } from './components/GameOverScreen';
 
 function GameScreen() {
@@ -16,20 +18,27 @@ function GameScreen() {
     resetGame,
   } = useGameStore();
 
+  const { isConnected, disconnect } = useNetworkStore();
+
   const currentPlayer = players[currentPlayerIndex];
+
+  const handleLeaveGame = () => {
+    disconnect();
+    resetGame();
+  };
 
   return (
     <div className="min-h-screen p-4">
       {/* Header */}
       <div className="max-w-4xl mx-auto mb-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-white">🏰 Barcadia</h1>
+          <h1 className="text-2xl font-bold text-white">Barcadia</h1>
           <button
-            onClick={resetGame}
+            onClick={handleLeaveGame}
             className="px-3 py-1 text-sm bg-dungeon-dark border border-dungeon-light
                        text-gray-400 hover:text-white rounded-lg transition-colors"
           >
-            New Game
+            {isConnected ? 'Leave Game' : 'New Game'}
           </button>
         </div>
       </div>
@@ -45,7 +54,7 @@ function GameScreen() {
                 style={{ backgroundColor: currentPlayer?.cup.color }}
               />
               <span className="font-bold">{currentPlayer?.name}'s turn</span>
-              <span className="text-gray-400 ml-2">— Hover over a hex to preview, click to explore</span>
+              <span className="text-gray-400 ml-2">— Click to explore or backtrack</span>
             </p>
           </div>
 
@@ -76,10 +85,41 @@ function GameScreen() {
 }
 
 export default function App() {
-  const phase = useGameStore(state => state.phase);
+  const { phase, startGame, applyNetworkState } = useGameStore();
+  const { isHost, isConnected, broadcast, onMessage } = useNetworkStore();
 
+  // Set up network broadcast when connected as host
+  useEffect(() => {
+    if (isConnected && isHost) {
+      setNetworkBroadcast((state) => {
+        broadcast({ type: 'game-state', state });
+      });
+    } else {
+      setNetworkBroadcast(null);
+    }
+
+    return () => {
+      setNetworkBroadcast(null);
+    };
+  }, [isConnected, isHost, broadcast]);
+
+  // Listen for network messages (guests receive state updates)
+  useEffect(() => {
+    onMessage((message) => {
+      if (message.type === 'game-state' && !isHost) {
+        applyNetworkState(message.state as Parameters<typeof applyNetworkState>[0]);
+      }
+    });
+  }, [onMessage, isHost, applyNetworkState]);
+
+  // Handle game start from lobby
+  const handleGameStart = (playerNames: string[]) => {
+    startGame(playerNames);
+  };
+
+  // Show lobby if in setup phase
   if (phase === 'setup') {
-    return <SetupScreen />;
+    return <Lobby onGameStart={handleGameStart} />;
   }
 
   return <GameScreen />;
