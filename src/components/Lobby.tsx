@@ -13,6 +13,7 @@ export function Lobby({ onGameStart }: LobbyProps) {
 
   const {
     roomCode,
+    peerId,
     isHost,
     isConnected,
     players,
@@ -23,11 +24,15 @@ export function Lobby({ onGameStart }: LobbyProps) {
     broadcast,
     onMessage,
     clearError,
+    setMyPlayerIndex,
   } = useNetworkStore();
 
   // Listen for game start message (guests)
   onMessage((message) => {
-    if (message.type === 'game-start') {
+    if (message.type === 'game-start' && peerId) {
+      // Set which player index this client controls
+      const myIndex = message.peerToIndex[peerId] ?? -1;
+      setMyPlayerIndex(myIndex);
       onGameStart(message.playerNames);
     }
   });
@@ -62,12 +67,21 @@ export function Lobby({ onGameStart }: LobbyProps) {
   };
 
   const handleStartGame = () => {
-    if (!isHost || players.length < 2) return;
+    if (!isHost || players.length < 2 || !peerId) return;
 
     const playerNames = players.map(p => p.name);
 
-    // Broadcast game start to all players
-    broadcast({ type: 'game-start', playerNames });
+    // Map each peerId to their player index (lobby order = game order)
+    const peerToIndex: Record<string, number> = {};
+    players.forEach((p, i) => {
+      peerToIndex[p.peerId] = i;
+    });
+
+    // Broadcast game start to all players with index mapping
+    broadcast({ type: 'game-start', playerNames, peerToIndex });
+
+    // Set host's player index (always 0 since host is first)
+    setMyPlayerIndex(peerToIndex[peerId] ?? 0);
 
     // Start locally too
     onGameStart(playerNames);

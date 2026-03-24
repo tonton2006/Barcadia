@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useGameStore, getPlaceablePositions, getMoveablePositions } from '../game/store';
+import { useNetworkStore } from '../network/peer';
 import { Tile, Player, HexCoord } from '../game/types';
 
 const HEX_SIZE = 50; // Radius of hexagon
@@ -28,7 +29,7 @@ interface HexTileProps {
   tile: Tile;
   playersOnTile: Player[];
   pixelPos: { x: number; y: number };
-  isCurrentPlayerHere: boolean;
+  currentPlayerId: string | null;
   currentPlayerColor: string;
   isMoveable: boolean;
   isHovered: boolean;
@@ -40,7 +41,7 @@ function HexTile({
   tile,
   playersOnTile,
   pixelPos,
-  isCurrentPlayerHere,
+  currentPlayerId,
   currentPlayerColor,
   isMoveable,
   isHovered,
@@ -61,20 +62,6 @@ function HexTile({
       onClick={() => isMoveable && onClick()}
       style={{ cursor: isMoveable ? 'pointer' : 'default' }}
     >
-      {/* Breathing glow for current player's position */}
-      {isCurrentPlayerHere && (
-        <circle
-          cx={0}
-          cy={0}
-          r={HEX_SIZE * 0.9}
-          fill="none"
-          stroke="white"
-          strokeWidth={3}
-          opacity={0.6}
-          className="animate-breathe"
-        />
-      )}
-
       <path
         d={hexagonPath(HEX_SIZE - 2)}
         fill="#2a2a4a"
@@ -106,16 +93,30 @@ function HexTile({
         <g transform={`translate(0, ${HEX_SIZE * 0.5})`}>
           {playersOnTile.map((player, i) => {
             const offset = (i - (playersOnTile.length - 1) / 2) * 14;
+            const isCurrentPlayer = player.id === currentPlayerId;
             return (
-              <circle
-                key={player.id}
-                cx={offset}
-                cy={0}
-                r={6}
-                fill={player.cup.color}
-                stroke="white"
-                strokeWidth={2}
-              />
+              <g key={player.id}>
+                {/* Breathing glow ring for current player */}
+                {isCurrentPlayer && (
+                  <circle
+                    cx={offset}
+                    cy={0}
+                    r={10}
+                    fill="none"
+                    stroke="white"
+                    strokeWidth={2}
+                    className="animate-breathe"
+                  />
+                )}
+                <circle
+                  cx={offset}
+                  cy={0}
+                  r={6}
+                  fill={player.cup.color}
+                  stroke="white"
+                  strokeWidth={2}
+                />
+              </g>
             );
           })}
         </g>
@@ -168,21 +169,27 @@ function PlaceableHex({ coord, pixelPos, isHovered, playerColor, onHover, onClic
 
 export function Board() {
   const { map, players, currentPlayerIndex, phase, placeTile, moveTo } = useGameStore();
+  const { myPlayerIndex, isConnected } = useNetworkStore();
   const [hoveredCoord, setHoveredCoord] = useState<HexCoord | null>(null);
 
   const currentPlayer = players[currentPlayerIndex];
 
+  // In multiplayer, only allow moves when it's your turn
+  const isMyTurn = !isConnected || myPlayerIndex === currentPlayerIndex;
+
   // Get all placeable positions for current player (unexplored)
+  // Only show if it's your turn in multiplayer
   const placeablePositions = useMemo(() => {
-    if (phase !== 'playing' || !currentPlayer) return [];
+    if (phase !== 'playing' || !currentPlayer || !isMyTurn) return [];
     return getPlaceablePositions(map, currentPlayer.position);
-  }, [map, currentPlayer, phase]);
+  }, [map, currentPlayer, phase, isMyTurn]);
 
   // Get all moveable positions for current player (existing tiles to backtrack)
+  // Only show if it's your turn in multiplayer
   const moveablePositions = useMemo(() => {
-    if (phase !== 'playing' || !currentPlayer) return [];
+    if (phase !== 'playing' || !currentPlayer || !isMyTurn) return [];
     return getMoveablePositions(map, currentPlayer.position);
-  }, [map, currentPlayer, phase]);
+  }, [map, currentPlayer, phase, isMyTurn]);
 
   // Calculate bounds to center the view
   const bounds = useMemo(() => {
@@ -241,12 +248,17 @@ export function Board() {
       {/* CSS for breathing animation */}
       <style>{`
         @keyframes breathe {
-          0%, 100% { opacity: 0.3; transform: scale(1); }
-          50% { opacity: 0.7; transform: scale(1.05); }
+          0%, 100% {
+            opacity: 0.3;
+            stroke-width: 2;
+          }
+          50% {
+            opacity: 1;
+            stroke-width: 3;
+          }
         }
         .animate-breathe {
-          animation: breathe 2s ease-in-out infinite;
-          transform-origin: center;
+          animation: breathe 1.5s ease-in-out infinite;
         }
       `}</style>
 
@@ -276,7 +288,6 @@ export function Board() {
         {tiles.map(({ key, tile, pixelPos }) => {
           const isMoveable = isMoveablePosition(tile.q, tile.r);
           const isHovered = hoveredCoord?.q === tile.q && hoveredCoord?.r === tile.r;
-          const isCurrentPlayerHere = currentPlayer?.position.q === tile.q && currentPlayer?.position.r === tile.r;
 
           return (
             <HexTile
@@ -284,7 +295,7 @@ export function Board() {
               tile={tile}
               playersOnTile={getPlayersOnTile(tile.q, tile.r)}
               pixelPos={pixelPos}
-              isCurrentPlayerHere={isCurrentPlayerHere}
+              currentPlayerId={currentPlayer?.id ?? null}
               currentPlayerColor={currentPlayer?.cup.color ?? '#888'}
               isMoveable={isMoveable}
               isHovered={isHovered}
@@ -297,7 +308,9 @@ export function Board() {
 
       {phase === 'playing' && currentPlayer && (
         <p className="text-sm" style={{ color: currentPlayer.cup.color }}>
-          {currentPlayer.name}'s turn - click to explore or backtrack
+          {isMyTurn
+            ? `Your turn - click to explore or backtrack`
+            : `Waiting for ${currentPlayer.name}...`}
         </p>
       )}
     </div>
