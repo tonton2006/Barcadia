@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useGameStore, getPlaceablePositions } from '../game/store';
+import { useGameStore, getPlaceablePositions, getMoveablePositions } from '../game/store';
 import { Tile, Player, HexCoord } from '../game/types';
 
 const HEX_SIZE = 50; // Radius of hexagon
@@ -28,9 +28,25 @@ interface HexTileProps {
   tile: Tile;
   playersOnTile: Player[];
   pixelPos: { x: number; y: number };
+  isCurrentPlayerHere: boolean;
+  currentPlayerColor: string;
+  isMoveable: boolean;
+  isHovered: boolean;
+  onHover: (coord: HexCoord | null) => void;
+  onClick: () => void;
 }
 
-function HexTile({ tile, playersOnTile, pixelPos }: HexTileProps) {
+function HexTile({
+  tile,
+  playersOnTile,
+  pixelPos,
+  isCurrentPlayerHere,
+  currentPlayerColor,
+  isMoveable,
+  isHovered,
+  onHover,
+  onClick,
+}: HexTileProps) {
   const getTileEmoji = () => {
     if (tile.monster) return '👹';
     if (tile.isStart) return '🏠';
@@ -38,16 +54,46 @@ function HexTile({ tile, playersOnTile, pixelPos }: HexTileProps) {
   };
 
   return (
-    <g transform={`translate(${pixelPos.x}, ${pixelPos.y})`}>
+    <g
+      transform={`translate(${pixelPos.x}, ${pixelPos.y})`}
+      onMouseEnter={() => isMoveable && onHover({ q: tile.q, r: tile.r })}
+      onMouseLeave={() => isMoveable && onHover(null)}
+      onClick={() => isMoveable && onClick()}
+      style={{ cursor: isMoveable ? 'pointer' : 'default' }}
+    >
+      {/* Breathing glow for current player's position */}
+      {isCurrentPlayerHere && (
+        <circle
+          cx={0}
+          cy={0}
+          r={HEX_SIZE * 0.9}
+          fill="none"
+          stroke="white"
+          strokeWidth={3}
+          opacity={0.6}
+          className="animate-breathe"
+        />
+      )}
+
       <path
         d={hexagonPath(HEX_SIZE - 2)}
-        className={`
-          fill-dungeon-medium stroke-dungeon-light stroke-2
-          ${tile.monster ? 'stroke-red-500' : ''}
-        `}
+        fill="#2a2a4a"
+        stroke={isMoveable && isHovered ? currentPlayerColor : (tile.monster ? '#ef4444' : '#4a4a6a')}
+        strokeWidth={isMoveable && isHovered ? 3 : 2}
+        style={{ transition: 'all 0.2s' }}
       />
+
+      {/* Hover overlay for moveable tiles */}
+      {isMoveable && isHovered && (
+        <path
+          d={hexagonPath(HEX_SIZE - 4)}
+          fill={`${currentPlayerColor}33`}
+          stroke="none"
+        />
+      )}
+
       <text
-        className="fill-white text-2xl select-none"
+        className="fill-white select-none pointer-events-none"
         textAnchor="middle"
         dominantBaseline="central"
         style={{ fontSize: '24px' }}
@@ -121,15 +167,21 @@ function PlaceableHex({ coord, pixelPos, isHovered, playerColor, onHover, onClic
 }
 
 export function Board() {
-  const { map, players, currentPlayerIndex, phase, placeTile } = useGameStore();
+  const { map, players, currentPlayerIndex, phase, placeTile, moveTo } = useGameStore();
   const [hoveredCoord, setHoveredCoord] = useState<HexCoord | null>(null);
 
   const currentPlayer = players[currentPlayerIndex];
 
-  // Get all placeable positions for current player
+  // Get all placeable positions for current player (unexplored)
   const placeablePositions = useMemo(() => {
     if (phase !== 'playing' || !currentPlayer) return [];
     return getPlaceablePositions(map, currentPlayer.position);
+  }, [map, currentPlayer, phase]);
+
+  // Get all moveable positions for current player (existing tiles to backtrack)
+  const moveablePositions = useMemo(() => {
+    if (phase !== 'playing' || !currentPlayer) return [];
+    return getMoveablePositions(map, currentPlayer.position);
   }, [map, currentPlayer, phase]);
 
   // Calculate bounds to center the view
@@ -173,6 +225,10 @@ export function Board() {
     );
   };
 
+  const isMoveablePosition = (q: number, r: number) => {
+    return moveablePositions.some(pos => pos.q === q && pos.r === r);
+  };
+
   // Convert map to array for rendering
   const tiles = Array.from(map.entries()).map(([key, tile]) => ({
     key,
@@ -182,6 +238,18 @@ export function Board() {
 
   return (
     <div className="flex flex-col items-center gap-4 p-4 bg-dungeon-dark/50 rounded-xl">
+      {/* CSS for breathing animation */}
+      <style>{`
+        @keyframes breathe {
+          0%, 100% { opacity: 0.3; transform: scale(1); }
+          50% { opacity: 0.7; transform: scale(1.05); }
+        }
+        .animate-breathe {
+          animation: breathe 2s ease-in-out infinite;
+          transform-origin: center;
+        }
+      `}</style>
+
       <svg
         viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`}
         className="w-full max-w-2xl"
@@ -205,19 +273,31 @@ export function Board() {
         })}
 
         {/* Existing tiles */}
-        {tiles.map(({ key, tile, pixelPos }) => (
-          <HexTile
-            key={key}
-            tile={tile}
-            playersOnTile={getPlayersOnTile(tile.q, tile.r)}
-            pixelPos={pixelPos}
-          />
-        ))}
+        {tiles.map(({ key, tile, pixelPos }) => {
+          const isMoveable = isMoveablePosition(tile.q, tile.r);
+          const isHovered = hoveredCoord?.q === tile.q && hoveredCoord?.r === tile.r;
+          const isCurrentPlayerHere = currentPlayer?.position.q === tile.q && currentPlayer?.position.r === tile.r;
+
+          return (
+            <HexTile
+              key={key}
+              tile={tile}
+              playersOnTile={getPlayersOnTile(tile.q, tile.r)}
+              pixelPos={pixelPos}
+              isCurrentPlayerHere={isCurrentPlayerHere}
+              currentPlayerColor={currentPlayer?.cup.color ?? '#888'}
+              isMoveable={isMoveable}
+              isHovered={isHovered}
+              onHover={setHoveredCoord}
+              onClick={() => moveTo(tile.q, tile.r)}
+            />
+          );
+        })}
       </svg>
 
       {phase === 'playing' && currentPlayer && (
         <p className="text-sm" style={{ color: currentPlayer.cup.color }}>
-          {currentPlayer.name}'s turn - click a hex to explore
+          {currentPlayer.name}'s turn - click to explore or backtrack
         </p>
       )}
     </div>

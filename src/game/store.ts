@@ -41,6 +41,7 @@ interface GameStore extends GameState {
   // Actions
   startGame: (playerNames: string[]) => void;
   placeTile: (q: number, r: number) => void;
+  moveTo: (q: number, r: number) => void;
   dismissCombat: () => void;
   resetGame: () => void;
 }
@@ -164,6 +165,35 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
+  moveTo: (q: number, r: number) => {
+    const { map, players, currentPlayerIndex, phase } = get();
+    if (phase !== 'playing') return;
+
+    const player = players[currentPlayerIndex];
+    const { q: pq, r: pr } = player.position;
+
+    // Check if this is a valid neighbor of current position
+    const neighbors = getHexNeighbors(pq, pr);
+    const isNeighbor = neighbors.some(n => n.q === q && n.r === r);
+    if (!isNeighbor) return;
+
+    // Check tile exists (for backtracking)
+    const key = hexKey(q, r);
+    if (!map.has(key)) return;
+
+    // Move player to existing tile
+    const newPlayers = players.map(p => ({ ...p, cup: { ...p.cup } }));
+    newPlayers[currentPlayerIndex].position = { q, r };
+
+    // Auto advance turn
+    const nextIndex = findNextAlivePlayer(newPlayers, currentPlayerIndex);
+
+    set({
+      players: newPlayers,
+      currentPlayerIndex: nextIndex,
+    });
+  },
+
   dismissCombat: () => {
     const { players, currentPlayerIndex } = get();
 
@@ -196,8 +226,14 @@ function findNextAlivePlayer(players: Player[], currentIndex: number): number {
   return currentIndex;
 }
 
-// Export helper for components to check placeable positions
+// Export helper for components to check placeable positions (unexplored)
 export function getPlaceablePositions(map: HexMap, playerPos: HexCoord): HexCoord[] {
   const neighbors = getHexNeighbors(playerPos.q, playerPos.r);
   return neighbors.filter(n => !map.has(hexKey(n.q, n.r)));
+}
+
+// Export helper for components to check moveable positions (existing tiles to backtrack)
+export function getMoveablePositions(map: HexMap, playerPos: HexCoord): HexCoord[] {
+  const neighbors = getHexNeighbors(playerPos.q, playerPos.r);
+  return neighbors.filter(n => map.has(hexKey(n.q, n.r)));
 }
