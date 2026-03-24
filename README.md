@@ -74,3 +74,4 @@ python game.py
 - [ ] Loot and treasure system
 - [ ] Sound effects and music
 - [ ] Custom artwork
+
