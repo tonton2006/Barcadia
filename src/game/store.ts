@@ -37,12 +37,54 @@ const generateTile = (q: number, r: number): Tile => {
 
 const PLAYER_COLORS = ['#e94560', '#4ecdc4', '#ffe66d', '#95e1d3', '#f38181', '#aa96da', '#a8d8ea', '#fcbad3', '#aa96da', '#f8b500'];
 
+// Serialization helpers for network sync (Map doesn't JSON serialize)
+export interface SerializedGameState {
+  players: Player[];
+  mapEntries: [string, Tile][];
+  currentPlayerIndex: number;
+  phase: GameState['phase'];
+  lastCombat: CombatResult | null;
+  winner: Player | null;
+}
+
+export function serializeState(state: GameState): SerializedGameState {
+  return {
+    players: state.players,
+    mapEntries: Array.from(state.map.entries()),
+    currentPlayerIndex: state.currentPlayerIndex,
+    phase: state.phase,
+    lastCombat: state.lastCombat,
+    winner: state.winner,
+  };
+}
+
+export function deserializeState(data: SerializedGameState): GameState {
+  return {
+    players: data.players,
+    map: new Map(data.mapEntries),
+    currentPlayerIndex: data.currentPlayerIndex,
+    phase: data.phase,
+    lastCombat: data.lastCombat,
+    winner: data.winner,
+  };
+}
+
+// Network broadcast callback (set by App when network is active)
+let networkBroadcast: ((state: SerializedGameState) => void) | null = null;
+
+export function setNetworkBroadcast(fn: ((state: SerializedGameState) => void) | null) {
+  networkBroadcast = fn;
+}
+
 interface GameStore extends GameState {
   // Actions
   startGame: (playerNames: string[]) => void;
   placeTile: (q: number, r: number) => void;
+  moveTo: (q: number, r: number) => void;
   dismissCombat: () => void;
   resetGame: () => void;
+  // Network sync
+  applyNetworkState: (state: SerializedGameState) => void;
 }
 
 const initialState: GameState = {
@@ -79,6 +121,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       lastCombat: null,
       winner: null,
     });
+
+    broadcastState();
   },
 
   placeTile: (q: number, r: number) => {
@@ -137,6 +181,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
               lastCombat: combat,
               winner: alivePlayers[0],
             });
+            broadcastState();
             return;
           }
         }
@@ -151,6 +196,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         phase: 'combat',
         lastCombat: combat,
       });
+      broadcastState();
       return;
     }
 
@@ -162,6 +208,37 @@ export const useGameStore = create<GameStore>((set, get) => ({
       map: newMap,
       currentPlayerIndex: nextIndex,
     });
+    broadcastState();
+  },
+
+  moveTo: (q: number, r: number) => {
+    const { map, players, currentPlayerIndex, phase } = get();
+    if (phase !== 'playing') return;
+
+    const player = players[currentPlayerIndex];
+    const { q: pq, r: pr } = player.position;
+
+    // Check if this is a valid neighbor of current position
+    const neighbors = getHexNeighbors(pq, pr);
+    const isNeighbor = neighbors.some(n => n.q === q && n.r === r);
+    if (!isNeighbor) return;
+
+    // Check tile exists (for backtracking)
+    const key = hexKey(q, r);
+    if (!map.has(key)) return;
+
+    // Move player to existing tile
+    const newPlayers = players.map(p => ({ ...p, cup: { ...p.cup } }));
+    newPlayers[currentPlayerIndex].position = { q, r };
+
+    // Auto advance turn
+    const nextIndex = findNextAlivePlayer(newPlayers, currentPlayerIndex);
+
+    set({
+      players: newPlayers,
+      currentPlayerIndex: nextIndex,
+    });
+    broadcastState();
   },
 
   dismissCombat: () => {
@@ -175,6 +252,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       lastCombat: null,
       currentPlayerIndex: nextIndex,
     });
+    broadcastState();
   },
 
   resetGame: () => {
@@ -183,7 +261,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
       map: new Map(), // Need fresh Map instance
     });
   },
+
+  applyNetworkState: (data: SerializedGameState) => {
+    set(deserializeState(data));
+  },
 }));
+
+// Helper to broadcast state after changes (called by host)
+function broadcastState() {
+  if (networkBroadcast) {
+    const state = useGameStore.getState();
+    networkBroadcast(serializeState(state));
+  }
+}
 
 // Helper to find next alive player
 function findNextAlivePlayer(players: Player[], currentIndex: number): number {
@@ -196,8 +286,14 @@ function findNextAlivePlayer(players: Player[], currentIndex: number): number {
   return currentIndex;
 }
 
-// Export helper for components to check placeable positions
+// Export helper for components to check placeable positions (unexplored)
 export function getPlaceablePositions(map: HexMap, playerPos: HexCoord): HexCoord[] {
   const neighbors = getHexNeighbors(playerPos.q, playerPos.r);
   return neighbors.filter(n => !map.has(hexKey(n.q, n.r)));
+}
+
+// Export helper for components to check moveable positions (existing tiles to backtrack)
+export function getMoveablePositions(map: HexMap, playerPos: HexCoord): HexCoord[] {
+  const neighbors = getHexNeighbors(playerPos.q, playerPos.r);
+  return neighbors.filter(n => map.has(hexKey(n.q, n.r)));
 }
