@@ -2,10 +2,22 @@
 
 A multiplayer fantasy drinking board game inspired by Heroes of Barcadia. Your drink is your health bar - take damage, take a drink!
 
-## Quick Start (Web Version)
+## Prerequisites
+
+- [Node.js](https://nodejs.org/) v18 or later
+- npm (comes with Node.js)
+
+## Quick Start
 
 ```bash
+# 1. Clone the repo
+git clone https://github.com/tonton2006/Barcadia.git
+cd Barcadia
+
+# 2. Install dependencies
 npm install
+
+# 3. Start the dev server
 npm run dev
 ```
 
