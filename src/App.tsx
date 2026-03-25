@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useGameStore, setNetworkBroadcast } from './game/store';
 import { useNetworkStore } from './network/peer';
 import { Board } from './components/Board';
@@ -18,23 +18,43 @@ function GameScreen() {
     resetGame,
   } = useGameStore();
 
-  const { isConnected, isHost, sendToHost, disconnect } = useNetworkStore();
+  const { isConnected, isHost, sendToHost, disconnect, myPlayerIndex } = useNetworkStore();
+
+  // Local state: has this user dismissed the combat modal on their screen?
+  const [locallyDismissed, setLocallyDismissed] = useState(false);
+
+  // Reset local dismiss when new combat occurs
+  useEffect(() => {
+    if (phase === 'combat' && lastCombat) {
+      setLocallyDismissed(false);
+    }
+  }, [phase, lastCombat]);
 
   const currentPlayer = players[currentPlayerIndex];
+  const isMyTurn = !isConnected || myPlayerIndex === currentPlayerIndex;
 
   const handleLeaveGame = () => {
     disconnect();
     resetGame();
   };
 
-  // Network-aware dismiss - guests send to host
+  // Handle combat dismiss
   const handleDismissCombat = () => {
-    if (isConnected && !isHost) {
-      sendToHost({ type: 'game-action', action: 'dismissCombat', payload: {} });
+    if (isMyTurn) {
+      // It's my combat - actually advance the turn
+      if (isConnected && !isHost) {
+        sendToHost({ type: 'game-action', action: 'dismissCombat', payload: {} });
+      } else {
+        dismissCombat();
+      }
     } else {
-      dismissCombat();
+      // Not my combat - just hide it locally
+      setLocallyDismissed(true);
     }
   };
+
+  // Show combat modal if in combat phase AND not locally dismissed
+  const showCombatModal = phase === 'combat' && lastCombat && !locallyDismissed;
 
   return (
     <div className="min-h-screen p-4">
@@ -77,11 +97,12 @@ function GameScreen() {
       </div>
 
       {/* Combat modal */}
-      {phase === 'combat' && lastCombat && (
+      {showCombatModal && (
         <CombatModal
           combat={lastCombat}
           playerName={currentPlayer.name}
           onDismiss={handleDismissCombat}
+          isMyTurn={isMyTurn}
         />
       )}
 

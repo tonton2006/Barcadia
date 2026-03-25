@@ -4,9 +4,10 @@ interface CombatModalProps {
   combat: CombatResult;
   playerName: string;
   onDismiss: () => void;
+  isMyTurn?: boolean;
 }
 
-export function CombatModal({ combat, playerName, onDismiss }: CombatModalProps) {
+export function CombatModal({ combat, playerName, onDismiss, isMyTurn = true }: CombatModalProps) {
   const { roll, needed, won, monster, damage } = combat;
 
   return (
@@ -47,8 +48,13 @@ export function CombatModal({ combat, playerName, onDismiss }: CombatModalProps)
           className="w-full py-3 bg-dungeon-accent hover:bg-dungeon-accent/80
                      text-white font-bold rounded-lg transition-colors"
         >
-          Continue
+          {isMyTurn ? 'Continue' : 'Dismiss'}
         </button>
+        {!isMyTurn && (
+          <p className="text-gray-500 text-xs mt-2">
+            Waiting for {playerName} to continue...
+          </p>
+        )}
       </div>
     </div>
   );
