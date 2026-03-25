@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useGameStore, setNetworkBroadcast } from './game/store';
 import { useNetworkStore } from './network/peer';
 import { Board } from './components/Board';
@@ -86,7 +86,17 @@ function GameScreen() {
 
 export default function App() {
   const { phase, startGame, applyNetworkState } = useGameStore();
-  const { isHost, isConnected, broadcast, onMessage } = useNetworkStore();
+  const { peerId, isHost, isConnected, broadcast, onMessage, setMyPlayerIndex } = useNetworkStore();
+
+  // Handle game start (called by Lobby for host, or via network for guests)
+  const handleGameStart = useCallback((playerNames: string[], peerToIndex?: Record<string, number>) => {
+    // Set player index if provided (for both host and guest)
+    if (peerToIndex && peerId) {
+      const myIndex = peerToIndex[peerId] ?? -1;
+      setMyPlayerIndex(myIndex);
+    }
+    startGame(playerNames);
+  }, [peerId, setMyPlayerIndex, startGame]);
 
   // Set up network broadcast when connected as host
   useEffect(() => {
@@ -103,19 +113,19 @@ export default function App() {
     };
   }, [isConnected, isHost, broadcast]);
 
-  // Listen for network messages (guests receive state updates)
+  // Listen for ALL network messages
   useEffect(() => {
     onMessage((message) => {
+      // Handle game start (guests receive this from host)
+      if (message.type === 'game-start') {
+        handleGameStart(message.playerNames, message.peerToIndex);
+      }
+      // Handle game state updates (guests receive ongoing state)
       if (message.type === 'game-state' && !isHost) {
         applyNetworkState(message.state as Parameters<typeof applyNetworkState>[0]);
       }
     });
-  }, [onMessage, isHost, applyNetworkState]);
-
-  // Handle game start from lobby
-  const handleGameStart = (playerNames: string[]) => {
-    startGame(playerNames);
-  };
+  }, [onMessage, isHost, applyNetworkState, handleGameStart]);
 
   // Show lobby if in setup phase
   if (phase === 'setup') {
