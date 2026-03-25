@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNetworkStore } from '../network/peer';
 
 interface LobbyProps {
-  onGameStart: (playerNames: string[]) => void;
+  onGameStart: (playerNames: string[], peerToIndex?: Record<string, number>) => void;
 }
 
 export function Lobby({ onGameStart }: LobbyProps) {
@@ -22,20 +22,8 @@ export function Lobby({ onGameStart }: LobbyProps) {
     joinRoom,
     disconnect,
     broadcast,
-    onMessage,
     clearError,
-    setMyPlayerIndex,
   } = useNetworkStore();
-
-  // Listen for game start message (guests)
-  onMessage((message) => {
-    if (message.type === 'game-start' && peerId) {
-      // Set which player index this client controls
-      const myIndex = message.peerToIndex[peerId] ?? -1;
-      setMyPlayerIndex(myIndex);
-      onGameStart(message.playerNames);
-    }
-  });
 
   const handleHost = async () => {
     if (!playerName.trim()) return;
@@ -80,11 +68,8 @@ export function Lobby({ onGameStart }: LobbyProps) {
     // Broadcast game start to all players with index mapping
     broadcast({ type: 'game-start', playerNames, peerToIndex });
 
-    // Set host's player index (always 0 since host is first)
-    setMyPlayerIndex(peerToIndex[peerId] ?? 0);
-
-    // Start locally too
-    onGameStart(playerNames);
+    // Start locally with the peerToIndex mapping
+    onGameStart(playerNames, peerToIndex);
   };
 
   const handleBack = () => {
