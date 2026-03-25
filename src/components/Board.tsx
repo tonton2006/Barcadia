@@ -169,13 +169,34 @@ function PlaceableHex({ coord, pixelPos, isHovered, playerColor, onHover, onClic
 
 export function Board() {
   const { map, players, currentPlayerIndex, phase, placeTile, moveTo } = useGameStore();
-  const { myPlayerIndex, isConnected } = useNetworkStore();
+  const { myPlayerIndex, isConnected, isHost, sendToHost } = useNetworkStore();
   const [hoveredCoord, setHoveredCoord] = useState<HexCoord | null>(null);
 
   const currentPlayer = players[currentPlayerIndex];
 
   // In multiplayer, only allow moves when it's your turn
   const isMyTurn = !isConnected || myPlayerIndex === currentPlayerIndex;
+
+  // Wrapper to handle actions - host executes locally, guests send to host
+  const handlePlaceTile = (q: number, r: number) => {
+    if (isConnected && !isHost) {
+      // Guest: send action to host
+      sendToHost({ type: 'game-action', action: 'placeTile', payload: { q, r } });
+    } else {
+      // Host or local: execute directly
+      placeTile(q, r);
+    }
+  };
+
+  const handleMoveTo = (q: number, r: number) => {
+    if (isConnected && !isHost) {
+      // Guest: send action to host
+      sendToHost({ type: 'game-action', action: 'moveTo', payload: { q, r } });
+    } else {
+      // Host or local: execute directly
+      moveTo(q, r);
+    }
+  };
 
   // Get all placeable positions for current player (unexplored)
   // Only show if it's your turn in multiplayer
@@ -279,7 +300,7 @@ export function Board() {
               isHovered={isHovered}
               playerColor={currentPlayer?.cup.color ?? '#888'}
               onHover={setHoveredCoord}
-              onClick={() => placeTile(coord.q, coord.r)}
+              onClick={() => handlePlaceTile(coord.q, coord.r)}
             />
           );
         })}
@@ -300,7 +321,7 @@ export function Board() {
               isMoveable={isMoveable}
               isHovered={isHovered}
               onHover={setHoveredCoord}
-              onClick={() => moveTo(tile.q, tile.r)}
+              onClick={() => handleMoveTo(tile.q, tile.r)}
             />
           );
         })}
