@@ -5,7 +5,7 @@ import { create } from 'zustand';
 export type NetworkMessage =
   | { type: 'player-join'; playerName: string; peerId: string }
   | { type: 'player-list'; players: NetworkPlayer[] }
-  | { type: 'game-start'; playerNames: string[] }
+  | { type: 'game-start'; playerNames: string[]; peerToIndex: Record<string, number> }
   | { type: 'game-action'; action: string; payload: unknown }
   | { type: 'game-state'; state: unknown }
   | { type: 'player-left'; peerId: string };
@@ -23,6 +23,7 @@ interface NetworkState {
   isHost: boolean;
   isConnected: boolean;
   players: NetworkPlayer[];
+  myPlayerIndex: number; // Which player index this client controls
   error: string | null;
 
   // Actions
@@ -33,6 +34,7 @@ interface NetworkState {
   disconnect: () => void;
   onMessage: (handler: (message: NetworkMessage, fromPeerId: string) => void) => void;
   clearError: () => void;
+  setMyPlayerIndex: (index: number) => void;
 }
 
 // Store connections (host keeps all, guest keeps one to host)
@@ -56,6 +58,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
   isHost: false,
   isConnected: false,
   players: [],
+  myPlayerIndex: -1,
   error: null,
 
   hostRoom: async (playerName: string): Promise<string> => {
@@ -230,6 +233,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       isHost: false,
       isConnected: false,
       players: [],
+      myPlayerIndex: -1,
       error: null,
     });
   },
@@ -240,5 +244,9 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
 
   clearError: () => {
     set({ error: null });
+  },
+
+  setMyPlayerIndex: (index: number) => {
+    set({ myPlayerIndex: index });
   },
 }));
