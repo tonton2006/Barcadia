@@ -18,13 +18,22 @@ function GameScreen() {
     resetGame,
   } = useGameStore();
 
-  const { isConnected, disconnect } = useNetworkStore();
+  const { isConnected, isHost, sendToHost, disconnect } = useNetworkStore();
 
   const currentPlayer = players[currentPlayerIndex];
 
   const handleLeaveGame = () => {
     disconnect();
     resetGame();
+  };
+
+  // Network-aware dismiss - guests send to host
+  const handleDismissCombat = () => {
+    if (isConnected && !isHost) {
+      sendToHost({ type: 'game-action', action: 'dismissCombat', payload: {} });
+    } else {
+      dismissCombat();
+    }
   };
 
   return (
@@ -72,7 +81,7 @@ function GameScreen() {
         <CombatModal
           combat={lastCombat}
           playerName={currentPlayer.name}
-          onDismiss={dismissCombat}
+          onDismiss={handleDismissCombat}
         />
       )}
 
@@ -85,7 +94,7 @@ function GameScreen() {
 }
 
 export default function App() {
-  const { phase, startGame, applyNetworkState } = useGameStore();
+  const { phase, startGame, applyNetworkState, placeTile, moveTo, dismissCombat } = useGameStore();
   const { peerId, isHost, isConnected, broadcast, onMessage, setMyPlayerIndex } = useNetworkStore();
 
   // Handle game start (called by Lobby for host, or via network for guests)
@@ -124,8 +133,21 @@ export default function App() {
       if (message.type === 'game-state' && !isHost) {
         applyNetworkState(message.state as Parameters<typeof applyNetworkState>[0]);
       }
+      // Handle game actions from guests (host executes them)
+      if (message.type === 'game-action' && isHost) {
+        const { action, payload } = message;
+        if (action === 'placeTile') {
+          const { q, r } = payload as { q: number; r: number };
+          placeTile(q, r);
+        } else if (action === 'moveTo') {
+          const { q, r } = payload as { q: number; r: number };
+          moveTo(q, r);
+        } else if (action === 'dismissCombat') {
+          dismissCombat();
+        }
+      }
     });
-  }, [onMessage, isHost, applyNetworkState, handleGameStart]);
+  }, [onMessage, isHost, applyNetworkState, handleGameStart, placeTile, moveTo, dismissCombat]);
 
   // Show lobby if in setup phase
   if (phase === 'setup') {
